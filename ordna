@@ -19,6 +19,7 @@ set -euo pipefail
 
 # Defaults
 SOURCES=()
+FILES=()            # collected files (array; NUL-safe)
 DEST=""
 MODE=""
 FROM_DATE=""
@@ -26,6 +27,7 @@ TO_DATE=""
 SORT_EXT=false
 DRYRUN=false
 MERGE=false
+STRICT_EXT=false    # if true, MIME sniffing is enabled for unknown extensions
 
 help() {
     cat <<EOF
@@ -43,12 +45,17 @@ Options:
   --from DATE            Start date (YYYY-mm-dd)
   --to DATE              End date (YYYY-mm-dd)
   -x, --ext              Sort into subfolders by file extension
+  --strict-ext           When extension unknown, sniff MIME (slower but more accurate)
   --dry-run              Show what would be done without making changes
   --merge                Merge / overwrite (default: smart unique naming)
   -h, --help             Show this help
 
 Dependencies:
   exiftool, file, sha256sum (or sha1sum/md5sum)
+
+Portability:
+  This script relies on GNU getopt and GNU date. On macOS/BSD, they differ or may be absent.
+  Detection is performed and a clear error is shown if GNU tools are missing.
 EOF
     exit 0
 }
@@ -59,9 +66,16 @@ die() {
     exit 2
 }
 
+# --- Check GNU tools ---
+if ! getopt --version 2>/dev/null | grep -qi gnu; then
+    die "requires GNU getopt (not BSD getopt)"
+fi
+if ! date --version 2>/dev/null | grep -qi gnu; then
+    die "requires GNU date (not BSD date)"
+fi
+
 # --- Robust option parsing via getopt (short+long) ---
-# Short: -m -c -x -h ; Long: --move --copy --ext --help --from= --to= --dry-run --merge
-PARSED=$(getopt -o mcxh -l move,copy,ext,help,from:,to:,dry-run,merge -- "$@") || die "invalid options"
+PARSED=$(getopt -o mcxh -l move,copy,ext,strict-ext,help,from:,to:,dry-run,merge -- "$@") || die "invalid options"
 eval set -- "$PARSED"
 
 while true; do
@@ -71,6 +85,7 @@ while true; do
         --from)    FROM_DATE="$2"; shift 2 ;;
         --to)      TO_DATE="$2"; shift 2 ;;
         -x|--ext)  SORT_EXT=true; shift ;;
+        --strict-ext) STRICT_EXT=true; shift ;;
         --dry-run) DRYRUN=true; shift ;;
         --merge)   MERGE=true; shift ;;
         -h|--help) help ;;
@@ -114,15 +129,36 @@ quote() { printf '"%s"' "$1"; }
 # Prefer EXIF DateTimeOriginal/CreateDate/ModifyDate via exiftool
 get_epoch() {
     local f="$1" t=""
-    t=$(exiftool -s3 -n -DateTimeOriginal# -- "$f" 2>/dev/null || true)
-    [[ -z "$t" ]] && t=$(exiftool -s3 -n -CreateDate# -- "$f" 2>/dev/null || true)
-    [[ -z "$t" ]] && t=$(exiftool -s3 -n -ModifyDate# -- "$f" 2>/dev/null || true)
-    [[ -z "$t" ]] && t=$(stat -c %Y -- "$f" 2>/dev/null || echo 0)
+
+    # Batch exiftool call to reduce process overhead
+    local info
+    info=$(exiftool -s3 -n -DateTimeOriginal# -CreateDate# -ModifyDate# -- "$f" 2>/dev/null || true)
+
+    while IFS=$'\n' read -r line; do
+        if [[ "$line" =~ ^[0-9]+$ && -n "$line" ]]; then
+            printf '%s' "$line"
+            return
+        fi
+    done <<< "$info"
+
+    # Try formatted strings like "2024:03:01 10:40:42+01:00"
+    for tag in DateTimeOriginal CreateDate ModifyDate; do
+        t=$(exiftool -s3 -api QuickTimeUTC=1 -$tag -- "$f" 2>/dev/null || true)
+        if [[ -n "$t" ]]; then
+            t=${t/:/-}; t=${t/:/-}
+            if epoch=$(date -d "$t" +%s 2>/dev/null); then
+                printf '%s' "$epoch"
+                return
+            fi
+        fi
+    done
+
+    # Fallback to mtime
+    t=$(stat -c %Y -- "$f" 2>/dev/null || echo 0)
     printf '%s' "${t:-0}"
 }
 
 in_range() {
-    # If no dates provided, consider everything in range
     local t="$1"
     if [[ -z "$FROM_DATE" && -z "$TO_DATE" ]]; then
         return 0
@@ -134,79 +170,74 @@ in_range() {
 }
 
 get_ext() {
+    # Cost model: fast path first (name-based), only sniff MIME if requested or unknown
     local f="$1" base ext mime
     base=$(basename -- "$f")
 
-    # 1) Content-based via `file --extension`
-    ext=$(file --brief --extension -- "$f" 2>/dev/null | cut -d/ -f1 | tr '[:upper:]' '[:lower:]')
+    # 1) O(1) filename-based decision
+    ext="${base##*.}"
+    [[ "$ext" == "$base" ]] && ext=""
+    ext="${ext,,}"
 
-    # 2) If unknown/empty, fall back to name-based extension
-    if [[ -z "$ext" || "$ext" == "???" || "$ext" == "??? " ]]; then
-        ext="${base##*.}"
-        [[ "$ext" == "$base" ]] && ext=""
-        ext="${ext,,}"
-    fi
-
-    # 3) If still unknown, try MIME-type + heuristics
-    if [[ -z "$ext" || "$ext" == "???" || "$ext" == "??? " || "$ext" == "" ]]; then
-        mime=$(file -b --mime-type -- "$f" 2>/dev/null || true)
-        case "$mime" in
-            application/xml|text/xml) ext="xml" ;;
-            application/json|text/json) ext="json" ;;
-            text/plain)
-                # Peek first bytes for XML prolog
-                if head -c 100 -- "$f" 2>/dev/null | grep -qi '^\s*<\?xml'; then
-                    ext="xml"
-                else
-                    ext="txt"
-                fi
-                ;;
-            application/zip)
-                # Office Open XML are zip containers – infer from name if possible
-                [[ "$base" == *.docx ]] && ext="docx"
-                [[ "$base" == *.xlsx ]] && ext="xlsx"
-                [[ "$base" == *.pptx ]] && ext="pptx"
-                [[ -z "$ext" ]] && ext="zip"
-                ;;
-            *)
-                : # leave ext as-is
-                ;;
-        esac
+    # 2) If unknown/empty OR strict mode requested, consult `file`
+    if [[ -z "$ext" || "$ext" == "" || "$STRICT_EXT" == true ]]; then
+        # Try content-based via `file --extension` (cheap-ish)
+        local fext
+        fext=$(file --brief --extension -- "$f" 2>/dev/null | cut -d/ -f1 | tr '[:upper:]' '[:lower:]')
+        if [[ -n "$fext" && "$fext" != "???" && "$fext" != "??? " ]]; then
+            ext="$fext"
+        elif [[ "$STRICT_EXT" == true ]]; then
+            # MIME sniff only in strict mode (expensive)
+            mime=$(file -b --mime-type -- "$f" 2>/dev/null || true)
+            case "$mime" in
+                application/xml|text/xml) ext="xml" ;;
+                application/json|text/json) ext="json" ;;
+                text/plain)
+                    if head -c 100 -- "$f" 2>/dev/null | grep -qi '^\s*<\?xml'; then
+                        ext="xml"
+                    else
+                        ext="txt"
+                    fi
+                    ;;
+                application/zip)
+                    [[ "$base" == *.docx ]] && ext="docx"
+                    [[ "$base" == *.xlsx ]] && ext="xlsx"
+                    [[ "$base" == *.pptx ]] && ext="pptx"
+                    [[ -z "$ext" ]] && ext="zip"
+                    ;;
+                *) : ;;
+            esac
+        fi
     fi
 
     [[ -z "$ext" ]] && ext="unknown"
     printf '%s' "$ext"
 }
 
-# Hash helper (sha256 required)
 hash_of() {
     local f="$1"
     sha256sum -- "$f" 2>/dev/null | awk '{print $1}'
 }
 
-# Ensure destination base exists
 mkdir -p -- "$DEST"
 
-# Collect files from SOURCES (files or directories)
 collect_files() {
-    local files=()
+    FILES=()
     local p
     for p in "${SOURCES[@]}"; do
         if [[ -f "$p" ]]; then
-            files+=("$p")
+            FILES+=("$p")
         elif [[ -d "$p" ]]; then
+            # NUL-safe collection
             while IFS= read -r -d '' f; do
-                files+=("$f")
+                FILES+=("$f")
             done < <(find "$p" -type f -print0)
         else
             log "Warning: source not found or unsupported: $p" >&2
         fi
     done
-    printf '%s\n' "${files[@]}"
 }
 
-# Decide target directory for a given file
-# Returns path via echo
 target_dir_for() {
     local f="$1" epoch bucket dir
     epoch=$(get_epoch "$f") || epoch=0
@@ -218,11 +249,9 @@ target_dir_for() {
     printf '%s' "$dir"
 }
 
-# Make a unique path if needed (content-aware). Returns final path via echo.
 unique_path() {
     local dst="$1" src="$2" base ext hash cand n=1
     if [[ -e "$dst" ]]; then
-        # If same content, keep existing by signaling "skip"
         local h_src h_dst
         h_src=$(hash_of "$src")
         h_dst=$(hash_of "$dst")
@@ -233,7 +262,6 @@ unique_path() {
         ext=""; [[ "$base" == *.* ]] && ext=".${base##*.}" && base="${base%.*}"
         hash=$(hash_of "$src" | cut -c1-12)
         cand="$(dirname -- "$dst")/${base}_$hash$ext"
-        # Ensure uniqueness if even that exists
         while [[ -e "$cand" ]]; do
             n=$((n+1))
             cand="$(dirname -- "$dst")/${base}_$hash-$n$ext"
@@ -244,7 +272,6 @@ unique_path() {
     fi
 }
 
-# Copy/move a single file to its computed target, honoring merge/dry-run and smart naming
 apply_action() {
     local src="$1" tdir tpath final action
     tdir=$(target_dir_for "$src")
@@ -268,26 +295,23 @@ apply_action() {
     fi
 
     if $DRYRUN; then
-        printf 'DRY: %q ' "${action[@]}"; echo
+        printf 'DRY: '; printf '%q ' "${action[@]}"; echo
     else
         "${action[@]}"
     fi
 }
 
-# Shared processing over a list of files
 process() {
     local f
-    while IFS= read -r f; do
-        [[ -n "$f" ]] || continue
+    for f in "${FILES[@]}"; do
         apply_action "$f"
     done
 }
 
-# Resolve mode and dispatch to processing
 dispatch() {
-    collect_files | process
+    collect_files
+    process
 }
 
-# Execute
 dispatch
 
