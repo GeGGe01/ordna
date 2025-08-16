@@ -54,8 +54,7 @@ Dependencies:
   exiftool, file, sha256sum (or sha1sum/md5sum)
 
 Portability:
-  Requires enhanced getopt (util-linux) and a date implementation with -d support.
-  Behavior-based detection is performed and a clear error is shown if missing.
+  Requires GNU getopt (util-linux) and a date implementation with -d support.
 EOF
     exit 0
 }
@@ -67,11 +66,6 @@ die() {
 }
 
 # --- Behavior checks (portable) ---
-# getopt: util-linux variant returns exit code 4 for --test
-getopt --test >/dev/null 2>&1 || true
-if [[ $? -ne 4 ]]; then
-    die "requires enhanced getopt (util-linux); found BSD/limited variant"
-fi
 # date: must support GNU-compatible -d parsing
 if ! date -d '1970-01-01 00:00:00 +0000' +%s >/dev/null 2>&1; then
     die "requires date -d support (GNU date or compatible)"
