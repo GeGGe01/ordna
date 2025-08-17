@@ -75,16 +75,18 @@ fi
 PARSED=$(getopt -o mcxh -l move,copy,ext,strict-ext,help,from:,to:,dry-run,merge -- "$@") || die "invalid options"
 eval set -- "$PARSED"
 
+echo "[DEBUG] Raw arguments: $@"
+
 while true; do
     case "$1" in
-        -m|--move) MODE="move"; shift ;;
-        -c|--copy) MODE="copy"; shift ;;
-        --from)    FROM_DATE="$2"; shift 2 ;;
-        --to)      TO_DATE="$2"; shift 2 ;;
-        -x|--ext)  SORT_EXT=true; shift ;;
-        --strict-ext) STRICT_EXT=true; shift ;;
-        --dry-run) DRYRUN=true; shift ;;
-        --merge)   MERGE=true; shift ;;
+        -m|--move) MODE="move"; echo "[DEBUG] MODE set to move"; shift ;;
+        -c|--copy) MODE="copy"; echo "[DEBUG] MODE set to copy"; shift ;;
+        --from)    FROM_DATE="$2"; echo "[DEBUG] FROM_DATE=$FROM_DATE"; shift 2 ;;
+        --to)      TO_DATE="$2"; echo "[DEBUG] TO_DATE=$TO_DATE"; shift 2 ;;
+        -x|--ext)  SORT_EXT=true; echo "[DEBUG] SORT_EXT enabled"; shift ;;
+        --strict-ext) STRICT_EXT=true; echo "[DEBUG] STRICT_EXT enabled"; shift ;;
+        --dry-run) DRYRUN=true; echo "[DEBUG] DRYRUN enabled"; shift ;;
+        --merge)   MERGE=true; echo "[DEBUG] MERGE enabled"; shift ;;
         -h|--help) help ;;
         --) shift; break ;;
         *) die "unexpected parser state '$1'" ;;
@@ -99,6 +101,8 @@ fi
 # Split DEST (last) and SOURCES (rest)
 DEST="${@: -1}"
 SOURCES=("${@:1:$(($#-1))}")
+echo "[DEBUG] DEST=$DEST"
+echo "[DEBUG] SOURCES=${SOURCES[*]}"
 
 # Validate mode
 [[ -n "$MODE" ]] || die "must specify -m or -c"
@@ -106,6 +110,7 @@ SOURCES=("${@:1:$(($#-1))}")
 # Validate required dependencies
 for dep in exiftool file sha256sum; do
     command -v "$dep" >/dev/null 2>&1 || die "missing dependency: $dep"
+    echo "[DEBUG] Found dependency: $dep"
 done
 
 # Validate dates (format + range)
@@ -126,6 +131,7 @@ quote() { printf '"%s"' "$1"; }
 # Prefer EXIF DateTimeOriginal/CreateDate/ModifyDate via exiftool
 get_epoch() {
     local f="$1" t=""
+    echo "[DEBUG] get_epoch for: $f"
 
     # Batch exiftool call to reduce process overhead
     local info
@@ -157,6 +163,7 @@ get_epoch() {
 
 in_range() {
     local t="$1"
+    echo "[DEBUG] in_range check: $t"
     if [[ -z "$FROM_DATE" && -z "$TO_DATE" ]]; then
         return 0
     fi
@@ -167,24 +174,18 @@ in_range() {
 }
 
 get_ext() {
-    # Cost model: fast path first (name-based), only sniff MIME if requested or unknown
     local f="$1" base ext mime
     base=$(basename -- "$f")
-
-    # 1) O(1) filename-based decision
     ext="${base##*.}"
     [[ "$ext" == "$base" ]] && ext=""
     ext="${ext,,}"
 
-    # 2) If unknown/empty OR strict mode requested, consult `file`
     if [[ -z "$ext" || "$ext" == "" || "$STRICT_EXT" == true ]]; then
-        # Try content-based via `file --extension` (cheap-ish)
         local fext
         fext=$(file --brief --extension -- "$f" 2>/dev/null | cut -d/ -f1 | tr '[:upper:]' '[:lower:]')
         if [[ -n "$fext" && "$fext" != "???" && "$fext" != "??? " ]]; then
             ext="$fext"
         elif [[ "$STRICT_EXT" == true ]]; then
-            # MIME sniff only in strict mode (expensive)
             mime=$(file -b --mime-type -- "$f" 2>/dev/null || true)
             case "$mime" in
                 application/xml|text/xml) ext="xml" ;;
@@ -208,24 +209,24 @@ get_ext() {
     fi
 
     [[ -z "$ext" ]] && ext="unknown"
+    echo "[DEBUG] get_ext for $f => $ext"
     printf '%s' "$ext"
 }
 
 hash_of() {
     local f="$1"
+    echo "[DEBUG] hash_of $f"
     sha256sum -- "$f" 2>/dev/null | awk '{print $1}'
 }
 
 mkdir -p -- "$DEST"
-
-collect_files() {
+\collect_files() {
     FILES=()
     local p
     for p in "${SOURCES[@]}"; do
         if [[ -f "$p" ]]; then
             FILES+=("$p")
         elif [[ -d "$p" ]]; then
-            # NUL-safe collection
             while IFS= read -r -d '' f; do
                 FILES+=("$f")
             done < <(find "$p" -type f -print0)
@@ -233,6 +234,7 @@ collect_files() {
             log "Warning: source not found or unsupported: $p" >&2
         fi
     done
+    echo "[DEBUG] Collected \${#FILES[@]} files"
 }
 
 target_dir_for() {
@@ -243,6 +245,7 @@ target_dir_for() {
     if $SORT_EXT; then
         dir="$dir/$(get_ext "$f")"
     fi
+    echo "[DEBUG] target_dir_for $f => $dir"
     printf '%s' "$dir"
 }
 
@@ -294,6 +297,7 @@ apply_action() {
     if $DRYRUN; then
         printf 'DRY: '; printf '%q ' "${action[@]}"; echo
     else
+        echo "[DEBUG] Running action: ${action[*]}"
         "${action[@]}"
     fi
 }
@@ -301,13 +305,16 @@ apply_action() {
 process() {
     local f
     for f in "${FILES[@]}"; do
+        echo "[DEBUG] Processing file: $f"
         apply_action "$f"
     done
 }
 
 dispatch() {
+    echo "[DEBUG] Starting dispatch"
     collect_files
     process
+    echo "[DEBUG] Finished dispatch"
 }
 
 dispatch
