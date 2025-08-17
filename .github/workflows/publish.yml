@@ -1,0 +1,78 @@
+# .github/workflows/publish.yml
+name: build-and-publish-apt
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04   # <— fast pin till 24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps (24.04)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            devscripts debhelper dpkg-dev fakeroot build-essential \
+            gnupg apt-ftparchive
+
+      - name: Build .deb
+        run: |
+          dpkg-buildpackage -us -uc -b
+          mkdir -p publish/pool/main/o/ordna
+          mv ../ordna_*_all.deb publish/pool/main/o/ordna/
+
+      - name: Import GPG for signing
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          gpg --batch --import <<<'${GPG_PRIVATE_KEY}'
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --reload gpg-agent
+          gpg --list-keys
+
+      - name: Make APT metadata
+        run: |
+          cd publish
+          touch .nojekyll
+          mkdir -p dists/stable/main/binary-all
+          apt-ftparchive packages pool > dists/stable/main/binary-all/Packages
+          gzip -kf dists/stable/main/binary-all/Packages
+          apt-ftparchive release dists/stable > dists/stable/Release
+
+      - name: Sign Release / InRelease
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          cd publish/dists/stable
+          gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" \
+              -abs -o Release.gpg Release
+          gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" \
+              --clearsign -o InRelease Release
+          cd ../../
+          gpg --armor --export > ordna-archive-keyring.asc
+
+      - name: Upload artifact to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
