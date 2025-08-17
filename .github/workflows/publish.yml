@@ -21,7 +21,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             devscripts debhelper dpkg-dev fakeroot build-essential \
-            gnupg apt-ftparchive
+            gnupg apt-utils
 
       - name: Build .deb
         run: |
