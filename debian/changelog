@@ -1,0 +1,5 @@
+PACKAGE (VERSION) UNRELEASED; urgency=medium
+
+  * debian/changelog
+
+ -- PC-000 <gg@PC-000.localdomain>  Sun, 17 Aug 2025 10:23:32 +0200
