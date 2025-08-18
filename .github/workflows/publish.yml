@@ -59,10 +59,27 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          gpg --batch --import <<<'${GPG_PRIVATE_KEY}'
+          set -euo pipefail
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           gpgconf --reload gpg-agent
-          gpg --list-keys
+
+          # Import key: support ASCII-armored or base64-encoded content
+          if echo "$GPG_PRIVATE_KEY" | grep -q "BEGIN PGP"; then
+            printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          else
+            printf '%s' "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+          fi
+
+          # Extract fingerprint and export to later steps
+          FPR=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr" {print $10; exit}')
+          if [ -z "${FPR:-}" ]; then
+            echo "Failed to import GPG private key (no fingerprint found)" >&2
+            exit 2
+          fi
+          echo "GPG_KEY_FPR=$FPR" >> "$GITHUB_ENV"
+          gpg --list-secret-keys
 
       - name: Make APT metadata
         run: |
@@ -79,9 +96,11 @@ jobs:
         run: |
           cd publish/dists/stable
           gpg --batch --yes --pinentry-mode loopback \
+              -u "$GPG_KEY_FPR" \
               --passphrase "$GPG_PASSPHRASE" \
               -abs -o Release.gpg Release
           gpg --batch --yes --pinentry-mode loopback \
+              -u "$GPG_KEY_FPR" \
               --passphrase "$GPG_PASSPHRASE" \
               --clearsign -o InRelease Release
           cd ../../
