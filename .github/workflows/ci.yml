@@ -23,6 +23,12 @@ jobs:
           make lint
           make test
 
+      - name: Enforce formatting
+        run: |
+          make fmt
+          # Fail if formatting produced changes
+          git diff --exit-code || (echo 'Formatting changes detected. Run `make fmt` locally and commit.' >&2; exit 1)
+
       - name: Install deb build deps
         run: |
           sudo apt-get update
@@ -32,4 +38,3 @@ jobs:
       - name: Build .deb (no publish)
         run: |
           dpkg-buildpackage -us -uc -b
-
