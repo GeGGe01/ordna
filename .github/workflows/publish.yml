@@ -17,10 +17,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Verify GPG secrets present
-        if: ${{ secrets.GPG_PRIVATE_KEY == '' || secrets.GPG_PASSPHRASE == '' }}
         run: |
-          echo "GPG secrets missing. Set GPG_PRIVATE_KEY and GPG_PASSPHRASE in repository or org secrets." >&2
-          exit 1
+          if [ -z "${{ secrets.GPG_PRIVATE_KEY }}" ] || [ -z "${{ secrets.GPG_PASSPHRASE }}" ]; then
+            echo "GPG secrets missing. Set GPG_PRIVATE_KEY and GPG_PASSPHRASE in repository or org secrets." >&2
+            exit 1
+          fi
 
       - name: Install build + lint deps (24.04)
         run: |
