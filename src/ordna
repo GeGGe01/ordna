@@ -75,7 +75,10 @@ fi
 PARSED=$(getopt -o mcxh -l move,copy,ext,strict-ext,help,from:,to:,dry-run,merge -- "$@") || die "invalid options"
 eval set -- "$PARSED"
 
-echo "[DEBUG] Raw arguments: $@"
+# Safe debug print of raw args
+printf '[DEBUG] Raw arguments:'
+printf ' %q' "$@"
+printf '\n'
 
 while true; do
     case "$1" in
@@ -99,10 +102,12 @@ if [[ $# -lt 2 ]]; then
 fi
 
 # Split DEST (last) and SOURCES (rest)
-DEST="${@: -1}"
+# shellcheck disable=SC2034  # SOURCES used later; DEST is a scalar
+DEST="${!#}"
 SOURCES=("${@:1:$(($#-1))}")
 echo "[DEBUG] DEST=$DEST"
-echo "[DEBUG] SOURCES=${SOURCES[*]}"
+# Debug sources as a quoted list
+printf '[DEBUG] SOURCES:'; printf ' %q' "${SOURCES[@]}"; printf '\n'
 
 # Validate mode
 [[ -n "$MODE" ]] || die "must specify -m or -c"
@@ -220,7 +225,7 @@ hash_of() {
 }
 
 mkdir -p -- "$DEST"
-\collect_files() {
+collect_files() {
     FILES=()
     local p
     for p in "${SOURCES[@]}"; do
@@ -234,7 +239,7 @@ mkdir -p -- "$DEST"
             log "Warning: source not found or unsupported: $p" >&2
         fi
     done
-    echo "[DEBUG] Collected \${#FILES[@]} files"
+    echo "[DEBUG] Collected ${#FILES[@]} files"
 }
 
 target_dir_for() {
@@ -318,4 +323,3 @@ dispatch() {
 }
 
 dispatch
-
