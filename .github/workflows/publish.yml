@@ -104,7 +104,43 @@ jobs:
               --passphrase "$GPG_PASSPHRASE" \
               --clearsign -o InRelease Release
           cd ../../
-          gpg --armor --export > ordna-archive-keyring.asc
+          gpg --armor --export "$GPG_KEY_FPR" > ordna-archive-keyring.asc
+
+      - name: Create landing page
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          REPO="${GITHUB_REPOSITORY##*/}"
+          OWNER_LC="${OWNER,,}"
+          REPO_LC="${REPO,,}"
+          BASE_URL="https://${OWNER_LC}.github.io/${REPO_LC}"
+          cat > publish/index.html <<HTML
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>ordna APT Repository</title>
+          <style>
+          body{font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;margin:2rem;max-width:48rem}
+          code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+          pre{background:#f6f8fa;padding:1rem;border-radius:8px;overflow:auto}
+          a{color:#0366d6;text-decoration:none}
+          h1{margin-bottom:.25rem}
+          </style>
+          <h1>ordna APT Repository</h1>
+          <p>Install ordna from this repository on Ubuntu/Debian:</p>
+          <pre><code>sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL ${BASE_URL}/ordna-archive-keyring.asc | sudo tee /etc/apt/keyrings/ordna.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/ordna.asc] ${BASE_URL} stable main" | sudo tee /etc/apt/sources.list.d/ordna.list >/dev/null
+sudo apt update
+sudo apt install ordna</code></pre>
+          <p>Direct downloads:</p>
+          <ul>
+            <li><a href="pool/main/o/ordna/">Pool: .deb files</a></li>
+            <li><a href="dists/stable/Release">Release</a> · <a href="dists/stable/InRelease">InRelease</a> · <a href="dists/stable/main/binary-all/Packages">Packages</a></li>
+            <li><a href="ordna-archive-keyring.asc">GPG key</a></li>
+          </ul>
+          <p>Project: <a href="https://github.com/${OWNER}/${REPO}">github.com/${OWNER}/${REPO}</a></p>
+          HTML
 
       - name: Upload artifact to Pages
         uses: actions/upload-pages-artifact@v3
