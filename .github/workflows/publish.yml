@@ -129,10 +129,10 @@ jobs:
           <h1>ordna APT Repository</h1>
           <p>Install ordna from this repository on Ubuntu/Debian:</p>
           <pre><code>sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL ${BASE_URL}/ordna-archive-keyring.asc | sudo tee /etc/apt/keyrings/ordna.asc >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/ordna.asc] ${BASE_URL} stable main" | sudo tee /etc/apt/sources.list.d/ordna.list >/dev/null
-sudo apt update
-sudo apt install ordna</code></pre>
+          curl -fsSL ${BASE_URL}/ordna-archive-keyring.asc | sudo tee /etc/apt/keyrings/ordna.asc >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/ordna.asc] ${BASE_URL} stable main" | sudo tee /etc/apt/sources.list.d/ordna.list >/dev/null
+          sudo apt update
+          sudo apt install ordna</code></pre>
           <p>Direct downloads:</p>
           <ul>
             <li><a href="pool/main/o/ordna/">Pool: .deb files</a></li>
