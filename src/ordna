@@ -19,7 +19,7 @@ set -euo pipefail
 
 # Defaults
 SOURCES=()
-FILES=() # collected files (array; NUL-safe)
+FILES=()            # collected files (array; NUL-safe)
 DEST=""
 MODE=""
 FROM_DATE=""
@@ -27,10 +27,10 @@ TO_DATE=""
 SORT_EXT=false
 DRYRUN=false
 MERGE=false
-STRICT_EXT=false # if true, MIME sniffing is enabled for unknown extensions
+STRICT_EXT=false    # if true, MIME sniffing is enabled for unknown extensions
 
 help() {
-    cat << EOF
+    cat <<EOF
 Usage: ordna SOURCE... DEST {-m | -c} [OPTIONS]
 
 Sources:
@@ -67,7 +67,7 @@ die() {
 
 # --- Behavior checks (portable) ---
 # date: must support GNU-compatible -d parsing
-if ! date -d '1970-01-01 00:00:00 +0000' +%s > /dev/null 2>&1; then
+if ! date -d '1970-01-01 00:00:00 +0000' +%s >/dev/null 2>&1; then
     die "requires date -d support (GNU date or compatible)"
 fi
 
@@ -75,58 +75,20 @@ fi
 PARSED=$(getopt -o mcxh -l move,copy,ext,strict-ext,help,from:,to:,dry-run,merge -- "$@") || die "invalid options"
 eval set -- "$PARSED"
 
-# Safe debug print of raw args
-printf '[DEBUG] Raw arguments:'
-printf ' %q' "$@"
-printf '\n'
+echo "[DEBUG] Raw arguments: $@"
 
 while true; do
     case "$1" in
-        -m | --move)
-            MODE="move"
-            echo "[DEBUG] MODE set to move"
-            shift
-            ;;
-        -c | --copy)
-            MODE="copy"
-            echo "[DEBUG] MODE set to copy"
-            shift
-            ;;
-        --from)
-            FROM_DATE="$2"
-            echo "[DEBUG] FROM_DATE=$FROM_DATE"
-            shift 2
-            ;;
-        --to)
-            TO_DATE="$2"
-            echo "[DEBUG] TO_DATE=$TO_DATE"
-            shift 2
-            ;;
-        -x | --ext)
-            SORT_EXT=true
-            echo "[DEBUG] SORT_EXT enabled"
-            shift
-            ;;
-        --strict-ext)
-            STRICT_EXT=true
-            echo "[DEBUG] STRICT_EXT enabled"
-            shift
-            ;;
-        --dry-run)
-            DRYRUN=true
-            echo "[DEBUG] DRYRUN enabled"
-            shift
-            ;;
-        --merge)
-            MERGE=true
-            echo "[DEBUG] MERGE enabled"
-            shift
-            ;;
-        -h | --help) help ;;
-        --)
-            shift
-            break
-            ;;
+        -m|--move) MODE="move"; echo "[DEBUG] MODE set to move"; shift ;;
+        -c|--copy) MODE="copy"; echo "[DEBUG] MODE set to copy"; shift ;;
+        --from)    FROM_DATE="$2"; echo "[DEBUG] FROM_DATE=$FROM_DATE"; shift 2 ;;
+        --to)      TO_DATE="$2"; echo "[DEBUG] TO_DATE=$TO_DATE"; shift 2 ;;
+        -x|--ext)  SORT_EXT=true; echo "[DEBUG] SORT_EXT enabled"; shift ;;
+        --strict-ext) STRICT_EXT=true; echo "[DEBUG] STRICT_EXT enabled"; shift ;;
+        --dry-run) DRYRUN=true; echo "[DEBUG] DRYRUN enabled"; shift ;;
+        --merge)   MERGE=true; echo "[DEBUG] MERGE enabled"; shift ;;
+        -h|--help) help ;;
+        --) shift; break ;;
         *) die "unexpected parser state '$1'" ;;
     esac
 done
@@ -137,37 +99,33 @@ if [[ $# -lt 2 ]]; then
 fi
 
 # Split DEST (last) and SOURCES (rest)
-# shellcheck disable=SC2034  # SOURCES used later; DEST is a scalar
-DEST="${!#}"
-SOURCES=("${@:1:$(($# - 1))}")
+DEST="${@: -1}"
+SOURCES=("${@:1:$(($#-1))}")
 echo "[DEBUG] DEST=$DEST"
-# Debug sources as a quoted list
-printf '[DEBUG] SOURCES:'
-printf ' %q' "${SOURCES[@]}"
-printf '\n'
+echo "[DEBUG] SOURCES=${SOURCES[*]}"
 
 # Validate mode
 [[ -n "$MODE" ]] || die "must specify -m or -c"
 
 # Validate required dependencies
 for dep in exiftool file sha256sum; do
-    command -v "$dep" > /dev/null 2>&1 || die "missing dependency: $dep"
+    command -v "$dep" >/dev/null 2>&1 || die "missing dependency: $dep"
     echo "[DEBUG] Found dependency: $dep"
 done
 
 # Validate dates (format + range)
 if [[ -n "$FROM_DATE" ]]; then
-    date -d "$FROM_DATE" +%Y-%m-%d > /dev/null 2>&1 || die "invalid --from date (YYYY-mm-dd)"
+    date -d "$FROM_DATE" +%Y-%m-%d >/dev/null 2>&1 || die "invalid --from date (YYYY-mm-dd)"
 fi
 if [[ -n "$TO_DATE" ]]; then
-    date -d "$TO_DATE" +%Y-%m-%d > /dev/null 2>&1 || die "invalid --to date (YYYY-mm-dd)"
+    date -d "$TO_DATE" +%Y-%m-%d >/dev/null 2>&1 || die "invalid --to date (YYYY-mm-dd)"
 fi
 if [[ -n "$FROM_DATE" && -n "$TO_DATE" ]]; then
     [[ "$(date -d "$FROM_DATE" +%s)" -le "$(date -d "$TO_DATE" +%s)" ]] || die "--from later than --to"
 fi
 
 # --- Helpers ---
-log() { printf '%s\n' "$*"; }
+log()   { printf '%s\n' "$*"; }
 quote() { printf '"%s"' "$1"; }
 
 # Prefer EXIF DateTimeOriginal/CreateDate/ModifyDate via exiftool
@@ -177,7 +135,7 @@ get_epoch() {
 
     # Batch exiftool call to reduce process overhead
     local info
-    info=$(exiftool -s3 -n -DateTimeOriginal# -CreateDate# -ModifyDate# -- "$f" 2> /dev/null || true)
+    info=$(exiftool -s3 -n -DateTimeOriginal# -CreateDate# -ModifyDate# -- "$f" 2>/dev/null || true)
 
     while IFS=$'\n' read -r line; do
         if [[ "$line" =~ ^[0-9]+$ && -n "$line" ]]; then
@@ -188,11 +146,10 @@ get_epoch() {
 
     # Try formatted strings like "2024:03:01 10:40:42+01:00"
     for tag in DateTimeOriginal CreateDate ModifyDate; do
-        t=$(exiftool -s3 -api QuickTimeUTC=1 -$tag -- "$f" 2> /dev/null || true)
+        t=$(exiftool -s3 -api QuickTimeUTC=1 -$tag -- "$f" 2>/dev/null || true)
         if [[ -n "$t" ]]; then
-            t=${t/:/-}
-            t=${t/:/-}
-            if epoch=$(date -d "$t" +%s 2> /dev/null); then
+            t=${t/:/-}; t=${t/:/-}
+            if epoch=$(date -d "$t" +%s 2>/dev/null); then
                 printf '%s' "$epoch"
                 return
             fi
@@ -200,7 +157,7 @@ get_epoch() {
     done
 
     # Fallback to mtime
-    t=$(stat -c %Y -- "$f" 2> /dev/null || echo 0)
+    t=$(stat -c %Y -- "$f" 2>/dev/null || echo 0)
     printf '%s' "${t:-0}"
 }
 
@@ -212,7 +169,7 @@ in_range() {
     fi
     local from=0 to=32503680000 # year 3000
     [[ -n "$FROM_DATE" ]] && from=$(date -d "$FROM_DATE 00:00:00" +%s)
-    [[ -n "$TO_DATE" ]] && to=$(date -d "$TO_DATE 23:59:59" +%s)
+    [[ -n "$TO_DATE"   ]] && to=$(date -d "$TO_DATE 23:59:59" +%s)
     [[ "$t" -ge "$from" && "$t" -le "$to" ]]
 }
 
@@ -225,16 +182,16 @@ get_ext() {
 
     if [[ -z "$ext" || "$ext" == "" || "$STRICT_EXT" == true ]]; then
         local fext
-        fext=$(file --brief --extension -- "$f" 2> /dev/null | cut -d/ -f1 | tr '[:upper:]' '[:lower:]')
+        fext=$(file --brief --extension -- "$f" 2>/dev/null | cut -d/ -f1 | tr '[:upper:]' '[:lower:]')
         if [[ -n "$fext" && "$fext" != "???" && "$fext" != "??? " ]]; then
             ext="$fext"
         elif [[ "$STRICT_EXT" == true ]]; then
-            mime=$(file -b --mime-type -- "$f" 2> /dev/null || true)
+            mime=$(file -b --mime-type -- "$f" 2>/dev/null || true)
             case "$mime" in
-                application/xml | text/xml) ext="xml" ;;
-                application/json | text/json) ext="json" ;;
+                application/xml|text/xml) ext="xml" ;;
+                application/json|text/json) ext="json" ;;
                 text/plain)
-                    if head -c 100 -- "$f" 2> /dev/null | grep -qi '^\s*<\?xml'; then
+                    if head -c 100 -- "$f" 2>/dev/null | grep -qi '^\s*<\?xml'; then
                         ext="xml"
                     else
                         ext="txt"
@@ -259,11 +216,11 @@ get_ext() {
 hash_of() {
     local f="$1"
     echo "[DEBUG] hash_of $f"
-    sha256sum -- "$f" 2> /dev/null | awk '{print $1}'
+    sha256sum -- "$f" 2>/dev/null | awk '{print $1}'
 }
 
 mkdir -p -- "$DEST"
-collect_files() {
+\collect_files() {
     FILES=()
     local p
     for p in "${SOURCES[@]}"; do
@@ -277,7 +234,7 @@ collect_files() {
             log "Warning: source not found or unsupported: $p" >&2
         fi
     done
-    echo "[DEBUG] Collected ${#FILES[@]} files"
+    echo "[DEBUG] Collected \${#FILES[@]} files"
 }
 
 target_dir_for() {
@@ -299,16 +256,14 @@ unique_path() {
         h_src=$(hash_of "$src")
         h_dst=$(hash_of "$dst")
         if [[ "$h_src" == "$h_dst" ]]; then
-            echo "__SKIP_IDENTICAL__"
-            return 0
+            echo "__SKIP_IDENTICAL__"; return 0
         fi
         base=$(basename -- "$dst")
-        ext=""
-        [[ "$base" == *.* ]] && ext=".${base##*.}" && base="${base%.*}"
+        ext=""; [[ "$base" == *.* ]] && ext=".${base##*.}" && base="${base%.*}"
         hash=$(hash_of "$src" | cut -c1-12)
         cand="$(dirname -- "$dst")/${base}_$hash$ext"
         while [[ -e "$cand" ]]; do
-            n=$((n + 1))
+            n=$((n+1))
             cand="$(dirname -- "$dst")/${base}_$hash-$n$ext"
         done
         echo "$cand"
@@ -340,9 +295,7 @@ apply_action() {
     fi
 
     if $DRYRUN; then
-        printf 'DRY: '
-        printf '%q ' "${action[@]}"
-        echo
+        printf 'DRY: '; printf '%q ' "${action[@]}"; echo
     else
         echo "[DEBUG] Running action: ${action[*]}"
         "${action[@]}"
@@ -365,3 +318,4 @@ dispatch() {
 }
 
 dispatch
+
