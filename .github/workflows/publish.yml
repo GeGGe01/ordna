@@ -16,18 +16,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build deps (24.04)
+      - name: Verify GPG secrets present
+        if: ${{ secrets.GPG_PRIVATE_KEY == '' || secrets.GPG_PASSPHRASE == '' }}
+        run: |
+          echo "GPG secrets missing. Set GPG_PRIVATE_KEY and GPG_PASSPHRASE in repository or org secrets." >&2
+          exit 1
+
+      - name: Install build + lint deps (24.04)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             devscripts debhelper dpkg-dev fakeroot build-essential \
-            gnupg apt-utils
+            gnupg apt-utils shellcheck shfmt bats
+
+      - name: Lint and test
+        run: |
+          make lint
+          make test
 
       - name: Build .deb
         run: |
           dpkg-buildpackage -us -uc -b
           mkdir -p publish/pool/main/o/ordna
           mv ../ordna_*_all.deb publish/pool/main/o/ordna/
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordna-deb
+          path: publish/pool/main/o/ordna/*.deb
+          if-no-files-found: error
 
       - name: Import GPG for signing
         env:
