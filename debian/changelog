@@ -1,5 +1,5 @@
-PACKAGE (VERSION) UNRELEASED; urgency=medium
+ordna (0.1.0-1) stable; urgency=medium
 
-  * debian/changelog
+  * Initial release.
 
- -- PC-000 <gg@PC-000.localdomain>  Sun, 17 Aug 2025 10:23:32 +0200
+ -- GG <gg@njb.gg>  Mon, 18 Aug 2025 12:34:56 +0200
