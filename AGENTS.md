@@ -1,4 +1,5 @@
 # Repository Guidelines
+CONVERT SHELLCODE TO GO LANGUAGE
 
 ## Project Structure & Module Organization
 - `src/ordna`: Primary Bash CLI. Keep all runtime logic here; prefer small helpers over subshell pipelines.
