@@ -31,8 +31,11 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
+          cache-dependency-path: go.sum
       - name: Download modules
         run: go mod download
+      - name: Tidy modules
+        run: go mod tidy
       - name: Vet
         run: go vet ./...
       - name: Test
@@ -49,6 +52,7 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
+          cache-dependency-path: go.sum
       - name: Build
         run: |
           go env
