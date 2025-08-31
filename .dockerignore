@@ -1,0 +1,11 @@
+**/.DS_Store
+**/.git
+**/.github
+**/.gitignore
+**/dist
+**/build
+**/vendor
+**/*.log
+**/*.tmp
+debian
+AGENTS.md

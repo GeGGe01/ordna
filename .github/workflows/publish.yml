@@ -21,7 +21,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             devscripts debhelper dpkg-dev fakeroot build-essential \
-            gnupg apt-utils
+            gnupg apt-utils golang-any
+
+      - name: Go version
+        run: go version
 
       - name: Build .deb
         run: |

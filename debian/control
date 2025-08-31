@@ -2,13 +2,12 @@ Source: ordna
 Section: utils
 Priority: optional
 Maintainer: GG <nn@njb.gg>
-Build-Depends: debhelper-compat (= 13)
+Build-Depends: debhelper-compat (= 13), golang-any
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 
 Package: ordna
-Architecture: all
-Depends: bash (>= 4.2), exiftool, file, coreutils, findutils, grep, gawk, sed
+Architecture: any
+Depends: ${misc:Depends}
 Description: Disciplined file sorter
  Small, opinionated tool to sort files by date/extension with move/copy modes.
-
