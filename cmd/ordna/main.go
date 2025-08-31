@@ -143,8 +143,17 @@ func copyFile(src, dst string) error {
 	if err := out.Close(); err != nil {
 		return err
 	}
-	if info, err := os.Stat(src); err == nil {
-		os.Chtimes(dst, info.ModTime(), info.ModTime())
+		var atime time.Time
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+			// Use access time from syscall.Stat_t
+			sec := stat.Atim.Sec
+			nsec := stat.Atim.Nsec
+			atime = time.Unix(sec, nsec)
+		} else {
+			// Fallback to current time if unable to get access time
+			atime = time.Now()
+		}
+		os.Chtimes(dst, atime, info.ModTime())
 		os.Chmod(dst, info.Mode())
 	}
 	return nil
