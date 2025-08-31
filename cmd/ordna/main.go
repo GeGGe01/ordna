@@ -72,10 +72,7 @@ func main() {
 				return err
 			}
 			t := info.ModTime()
-			if !from.IsZero() && t.Before(from) {
-				return nil
-			}
-			if !to.IsZero() && t.After(to) {
+			if !to.IsZero() && t.After(to.Add(24*time.Hour)) {
 				return nil
 			}
 
