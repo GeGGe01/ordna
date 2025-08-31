@@ -26,11 +26,27 @@ jobs:
       - name: Go version
         run: go version
 
+      - name: Prepare changelog from tag
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          export DEBFULLNAME="CI"
+          export DEBEMAIL="ci@example.invalid"
+          # Create or bump changelog to match tag version
+          if command -v dch >/dev/null 2>&1; then
+            if [ -f debian/changelog ]; then
+              dch --newversion "$VERSION" --distribution stable "CI release $VERSION" || true
+            else
+              dch --create --package ordna --newversion "$VERSION" --distribution stable "CI release $VERSION" || true
+            fi
+          fi
+
       - name: Build .deb
         run: |
           dpkg-buildpackage -us -uc -b
           mkdir -p publish/pool/main/o/ordna
-          mv ../ordna_*_all.deb publish/pool/main/o/ordna/
+          mv ../ordna_*_*.deb publish/pool/main/o/ordna/
 
       - name: Import GPG for signing
         env:
